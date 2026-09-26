@@ -1,0 +1,1761 @@
+--[[
+    seahook | rivals | full build v9
+    combat + visuals (chams, skin, hit notif, hit sounds) + misc (ESP) + world + loading
+]]
+
+-- noise filter
+do
+    local ok, newccl = pcall(function() return newcclosure end)
+    if ok and newccl then
+        pcall(function()
+            local LogService = game:GetService('LogService')
+            local old = LogService.MessageOut
+            LogService.MessageOut = newccl(function(self, msg, t)
+                if type(msg) == 'string' then
+                    if msg:find('Remote event invocation') then return end
+                    if msg:find('Cloud instance must exist') then return end
+                    if msg:find('ReplicateUnreliable') then return end
+                    if msg:find('SurfaceAppearance') then return end
+                    if msg:find('AppDelegate') then return end
+                end
+                return old(self, msg, t)
+            end)
+        end)
+    end
+end
+
+-- kick protection
+do
+    local Players = game:GetService('Players')
+    local LP = Players.LocalPlayer
+    if not LP then repeat task.wait(0.1) until Players.LocalPlayer; LP = Players.LocalPlayer end
+    pcall(function() LP.Kick = function() end; LP.kick = function() end end)
+    task.spawn(function()
+        while task.wait(5) do pcall(function() LP.Kick = function() end end) end
+    end)
+end
+
+print('[seahook] 01 start')
+
+-- ============================================================
+-- LOADING SCREEN
+-- ============================================================
+local LoadingGui, BarFill, Pct, StatusLabel, SHUTDOWN = false
+do
+    local TweenService = game:GetService('TweenService')
+    local LP = game:GetService('Players').LocalPlayer
+
+    local function hidden()
+        if gethui then
+            local ok, h = pcall(gethui)
+            if ok and h then return h end
+        end
+        return game:GetService('CoreGui')
+    end
+
+    LoadingGui = Instance.new('ScreenGui')
+    LoadingGui.Name = 'seahook_loading'
+    LoadingGui.IgnoreGuiInset = true
+    LoadingGui.ResetOnSpawn = false
+    LoadingGui.DisplayOrder = 999999
+    LoadingGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    pcall(function() LoadingGui.Parent = hidden() end)
+    if not LoadingGui.Parent then pcall(function() LoadingGui.Parent = LP:WaitForChild('PlayerGui') end) end
+
+    local bg = Instance.new('Frame')
+    bg.Size = UDim2.fromScale(1, 1)
+    bg.BackgroundColor3 = Color3.fromRGB(3, 3, 7)
+    bg.BorderSizePixel = 0
+    bg.Parent = LoadingGui
+
+    local bgGrad = Instance.new('UIGradient')
+    bgGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(3, 3, 7)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(12, 6, 20)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(3, 3, 7)),
+    })
+    bgGrad.Rotation = 90
+    bgGrad.Parent = bg
+
+    local grid = Instance.new('Frame')
+    grid.Size = UDim2.fromScale(1, 1)
+    grid.BackgroundTransparency = 1
+    grid.ZIndex = 2
+    grid.Parent = LoadingGui
+    for i = 1, 32 do
+        local l = Instance.new('Frame')
+        l.Size = UDim2.new(0, 1, 1, 0)
+        l.Position = UDim2.new(i / 32, 0, 0, 0)
+        l.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+        l.BackgroundTransparency = 0.94
+        l.BorderSizePixel = 0
+        l.ZIndex = 2
+        l.Parent = grid
+    end
+    for i = 1, 18 do
+        local l = Instance.new('Frame')
+        l.Size = UDim2.new(1, 0, 0, 1)
+        l.Position = UDim2.new(0, 0, i / 18, 0)
+        l.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+        l.BackgroundTransparency = 0.94
+        l.BorderSizePixel = 0
+        l.ZIndex = 2
+        l.Parent = grid
+    end
+
+    local glow = Instance.new('ImageLabel')
+    glow.AnchorPoint = Vector2.new(0.5, 0.5)
+    glow.Position = UDim2.new(0.5, 0, 0.5, -40)
+    glow.Size = UDim2.new(0, 1400, 0, 640)
+    glow.BackgroundTransparency = 1
+    glow.Image = 'rbxassetid://5028857472'
+    glow.ImageColor3 = Color3.fromRGB(255, 105, 180)
+    glow.ImageTransparency = 0.5
+    glow.ScaleType = Enum.ScaleType.Slice
+    glow.SliceCenter = Rect.new(24, 24, 276, 276)
+    glow.ZIndex = 3
+    glow.Parent = LoadingGui
+
+    task.spawn(function()
+        while glow.Parent and not SHUTDOWN do
+            pcall(function() TweenService:Create(glow, TweenInfo.new(1.0), { ImageTransparency = 0.3 }):Play() end)
+            task.wait(1.0)
+            if not glow.Parent or SHUTDOWN then break end
+            pcall(function() TweenService:Create(glow, TweenInfo.new(1.0), { ImageTransparency = 0.75 }):Play() end)
+            task.wait(1.0)
+        end
+    end)
+
+    local ringHolder = Instance.new('Frame')
+    ringHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+    ringHolder.Position = UDim2.new(0.5, 0, 0.5, -20)
+    ringHolder.Size = UDim2.fromOffset(720, 720)
+    ringHolder.BackgroundTransparency = 1
+    ringHolder.ZIndex = 4
+    ringHolder.Parent = LoadingGui
+
+    local function mkRing(size, color, thick, trans)
+        local r = Instance.new('Frame')
+        r.AnchorPoint = Vector2.new(0.5, 0.5)
+        r.Position = UDim2.fromScale(0.5, 0.5)
+        r.Size = UDim2.fromOffset(size, size)
+        r.BackgroundTransparency = 1
+        r.ZIndex = 4
+        r.Parent = ringHolder
+        Instance.new('UICorner', r).CornerRadius = UDim.new(1, 0)
+        local s = Instance.new('UIStroke')
+        s.Color = color
+        s.Thickness = thick
+        s.Transparency = trans
+        s.Parent = r
+        return s
+    end
+
+    local rings = {
+        mkRing(720, Color3.fromRGB(255, 105, 180), 2.0, 0.30),
+        mkRing(600, Color3.fromRGB(255, 155, 210), 1.5, 0.40),
+        mkRing(480, Color3.fromRGB(200, 80, 255), 1.2, 0.50),
+        mkRing(360, Color3.fromRGB(120, 200, 255), 1.0, 0.58),
+        mkRing(240, Color3.fromRGB(255, 255, 255), 1.0, 0.65),
+        mkRing(120, Color3.fromRGB(255, 200, 230), 1.0, 0.70),
+    }
+
+    local dots = {}
+    for i = 1, 5 do
+        local d = Instance.new('Frame')
+        d.Size = UDim2.fromOffset(18 - i * 2, 18 - i * 2)
+        d.BackgroundColor3 = Color3.fromHSV((i / 6) % 1, 0.5, 1)
+        d.BorderSizePixel = 0
+        d.ZIndex = 5
+        d.Parent = ringHolder
+        Instance.new('UICorner', d).CornerRadius = UDim.new(1, 0)
+        table.insert(dots, { frame = d, speed = 1.4 + i * 0.4, radius = 360 - i * 55 })
+    end
+
+    local titleShadow = Instance.new('TextLabel')
+    titleShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    titleShadow.Position = UDim2.new(0.5, 5, 0.5, -74)
+    titleShadow.Size = UDim2.new(1, 0, 0, 100)
+    titleShadow.BackgroundTransparency = 1
+    titleShadow.Text = 'go mog them kids 😈'
+    titleShadow.TextColor3 = Color3.fromRGB(255, 105, 180)
+    titleShadow.Font = Enum.Font.GothamBlack
+    titleShadow.TextSize = 72
+    titleShadow.TextTransparency = 0.65
+    titleShadow.ZIndex = 6
+    titleShadow.Parent = LoadingGui
+
+    local title = Instance.new('TextLabel')
+    title.AnchorPoint = Vector2.new(0.5, 0.5)
+    title.Position = UDim2.new(0.5, 0, 0.5, -80)
+    title.Size = UDim2.new(1, 0, 0, 100)
+    title.BackgroundTransparency = 1
+    title.Text = 'go mog them kids 😈'
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 72
+    title.TextStrokeTransparency = 0
+    title.TextStrokeColor3 = Color3.fromRGB(120, 40, 100)
+    title.ZIndex = 7
+    title.Parent = LoadingGui
+
+    local titleGrad = Instance.new('UIGradient')
+    titleGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 105, 180)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 255)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 80, 255)),
+    })
+    titleGrad.Parent = title
+
+    task.spawn(function()
+        local t = 0
+        while title.Parent and not SHUTDOWN do
+            t = (t + 0.01) % 1
+            titleGrad.Offset = Vector2.new(math.sin(t * math.pi * 2) * 0.5, 0)
+            task.wait(1/60)
+        end
+    end)
+
+    local sub = Instance.new('TextLabel')
+    sub.AnchorPoint = Vector2.new(0.5, 0.5)
+    sub.Position = UDim2.new(0.5, 0, 0.5, -22)
+    sub.Size = UDim2.new(1, 0, 0, 26)
+    sub.BackgroundTransparency = 1
+    sub.Text = 's  e  a  h  o  o  k'
+    sub.TextColor3 = Color3.fromRGB(255, 200, 230)
+    sub.Font = Enum.Font.GothamBold
+    sub.TextSize = 16
+    sub.ZIndex = 7
+    sub.Parent = LoadingGui
+
+    local sparkleRow = Instance.new('Frame')
+    sparkleRow.AnchorPoint = Vector2.new(0.5, 0.5)
+    sparkleRow.Position = UDim2.new(0.5, 0, 0.5, 4)
+    sparkleRow.Size = UDim2.fromOffset(320, 14)
+    sparkleRow.BackgroundTransparency = 1
+    sparkleRow.ZIndex = 7
+    sparkleRow.Parent = LoadingGui
+    local sparkles = {}
+    for i = 1, 12 do
+        local s = Instance.new('Frame')
+        s.AnchorPoint = Vector2.new(0.5, 0.5)
+        s.Size = UDim2.fromOffset(4, 4)
+        s.Position = UDim2.new(i / 12, 0, 0.5, 0)
+        s.BackgroundColor3 = Color3.fromRGB(255, 200, 230)
+        s.BorderSizePixel = 0
+        s.ZIndex = 7
+        s.Parent = sparkleRow
+        Instance.new('UICorner', s).CornerRadius = UDim.new(1, 0)
+        table.insert(sparkles, s)
+    end
+
+    StatusLabel = Instance.new('TextLabel')
+    StatusLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+    StatusLabel.Position = UDim2.new(0.5, 0, 0.5, 22)
+    StatusLabel.Size = UDim2.new(1, 0, 0, 20)
+    StatusLabel.BackgroundTransparency = 1
+    StatusLabel.Text = 'initializing'
+    StatusLabel.TextColor3 = Color3.fromRGB(200, 200, 220)
+    StatusLabel.Font = Enum.Font.GothamMedium
+    StatusLabel.TextSize = 13
+    StatusLabel.ZIndex = 7
+    StatusLabel.Parent = LoadingGui
+
+    local barOuter = Instance.new('Frame')
+    barOuter.AnchorPoint = Vector2.new(0.5, 0.5)
+    barOuter.Position = UDim2.new(0.5, 0, 0.5, 52)
+    barOuter.Size = UDim2.new(0, 540, 0, 12)
+    barOuter.BackgroundColor3 = Color3.fromRGB(18, 14, 26)
+    barOuter.BorderSizePixel = 0
+    barOuter.ZIndex = 7
+    barOuter.Parent = LoadingGui
+    Instance.new('UICorner', barOuter).CornerRadius = UDim.new(1, 0)
+
+    local barStroke = Instance.new('UIStroke', barOuter)
+    barStroke.Color = Color3.fromRGB(255, 105, 180)
+    barStroke.Thickness = 1
+    barStroke.Transparency = 0.4
+
+    BarFill = Instance.new('Frame')
+    BarFill.Size = UDim2.new(0, 0, 1, 0)
+    BarFill.BackgroundColor3 = Color3.fromRGB(255, 105, 180)
+    BarFill.BorderSizePixel = 0
+    BarFill.ZIndex = 8
+    BarFill.Parent = barOuter
+    Instance.new('UICorner', BarFill).CornerRadius = UDim.new(1, 0)
+
+    local fillGrad = Instance.new('UIGradient')
+    fillGrad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 105, 180)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 200, 230)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(200, 80, 255)),
+    })
+    fillGrad.Parent = BarFill
+
+    local shine = Instance.new('Frame')
+    shine.Size = UDim2.new(0, 100, 1, 0)
+    shine.Position = UDim2.new(0, -100, 0, 0)
+    shine.BackgroundColor3 = Color3.fromRGB(255, 240, 250)
+    shine.BackgroundTransparency = 0.3
+    shine.BorderSizePixel = 0
+    shine.ZIndex = 9
+    shine.Parent = BarFill
+    Instance.new('UICorner', shine).CornerRadius = UDim.new(1, 0)
+
+    task.spawn(function()
+        while BarFill.Parent and BarFill.Parent.Parent and not SHUTDOWN do
+            shine.Position = UDim2.new(0, -100, 0, 0)
+            pcall(function()
+                TweenService:Create(shine, TweenInfo.new(1.1, Enum.EasingStyle.Linear), { Position = UDim2.new(1, 0, 0, 0) }):Play()
+            end)
+            task.wait(1.25)
+        end
+    end)
+
+    Pct = Instance.new('TextLabel')
+    Pct.AnchorPoint = Vector2.new(0.5, 0.5)
+    Pct.Position = UDim2.new(0.5, 0, 0.5, 80)
+    Pct.Size = UDim2.new(1, 0, 0, 20)
+    Pct.BackgroundTransparency = 1
+    Pct.Text = '0%'
+    Pct.TextColor3 = Color3.fromRGB(220, 220, 240)
+    Pct.Font = Enum.Font.GothamBold
+    Pct.TextSize = 14
+    Pct.ZIndex = 7
+    Pct.Parent = LoadingGui
+
+    task.spawn(function()
+        local t = 0
+        local statuses = {
+            { t = 0.00, txt = 'hooking remotes' },
+            { t = 0.30, txt = 'reading fighter controller' },
+            { t = 0.60, txt = 'calibrating silent aim' },
+            { t = 0.90, txt = 'loading combat modules' },
+            { t = 1.20, txt = 'building fov renderers' },
+            { t = 1.50, txt = 'loading world' },
+            { t = 1.80, txt = 'prepping ragebot' },
+            { t = 2.10, txt = 'applying visuals' },
+            { t = 2.35, txt = 'seahook ready' },
+        }
+        local start = tick()
+        local total = 2.6
+        while LoadingGui.Parent and not SHUTDOWN do
+            t = t + (1/60)
+            for i, r in ipairs(rings) do
+                r.Transparency = 0.2 + math.sin(t * (1.8 + i * 0.3)) * 0.2
+            end
+            for i, d in ipairs(dots) do
+                local a = t * d.speed
+                d.frame.Position = UDim2.new(0.5, math.cos(a) * d.radius - 4, 0.5, math.sin(a) * d.radius - 4)
+            end
+            for i, s in ipairs(sparkles) do
+                local p = (math.sin(t * 3 + i * 0.5) + 1) * 0.5
+                s.BackgroundTransparency = 1 - p
+                s.Size = UDim2.fromOffset(3 + p * 3, 3 + p * 3)
+            end
+            local elapsed = tick() - start
+            local p2 = math.clamp(elapsed / total, 0, 1)
+            BarFill.Size = UDim2.new(p2, 0, 1, 0)
+            Pct.Text = math.floor(p2 * 100) .. '%'
+            for i = #statuses, 1, -1 do
+                if elapsed >= statuses[i].t then
+                    StatusLabel.Text = statuses[i].txt
+                    break
+                end
+            end
+            task.wait(1/60)
+        end
+    end)
+end
+
+local function setProgress(p)
+    pcall(function()
+        if BarFill and BarFill.Parent then
+            game:GetService('TweenService'):Create(BarFill, TweenInfo.new(0.2), {
+                Size = UDim2.new(math.clamp(p, 0, 1), 0, 1, 0),
+            }):Play()
+        end
+        if Pct and Pct.Parent then Pct.Text = math.floor(math.clamp(p, 0, 1) * 100) .. '%' end
+    end)
+end
+
+setProgress(0.1)
+print('[seahook] 02 loading screen built')
+
+-- ============================================================
+-- LIBRARY
+-- ============================================================
+print('[seahook] 03 loading library')
+local Library
+local ok1, err1 = pcall(function()
+    Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/visnoukkk/ObsidianLib/refs/heads/main/Library.lua'))()
+end)
+if not ok1 or not Library then
+    warn('[seahook] library 1 failed: ' .. tostring(err1))
+    local ok2, err2 = pcall(function()
+        Library = loadstring(game:HttpGet('https://raw.githubusercontent.com/deividcomsono/Obsidian/main/Library.lua'))()
+    end)
+    if not ok2 or not Library then
+        warn('[seahook] library 2 failed: ' .. tostring(err2))
+        SHUTDOWN = true
+        if LoadingGui and LoadingGui.Parent then LoadingGui:Destroy() end
+        return
+    end
+end
+print('[seahook] 04 library loaded')
+setProgress(0.4)
+
+-- ============================================================
+-- WINDOW
+-- ============================================================
+print('[seahook] 05 window')
+local Window
+local winOK, winErr = pcall(function()
+    Window = Library:CreateWindow({
+        Title = 'seahook | rivals',
+        Footer = 'combat suite',
+        Icon = 0,
+        NotifySide = 'Left',
+        Center = true,
+        AutoShow = true,
+        Resizable = true,
+        MobileButtonsSide = 'Left',
+        ShowCustomCursor = true,
+    })
+end)
+if not winOK or not Window then
+    warn('[seahook] window failed: ' .. tostring(winErr))
+    SHUTDOWN = true
+    if LoadingGui and LoadingGui.Parent then LoadingGui:Destroy() end
+    return
+end
+print('[seahook] 06 window ok')
+setProgress(0.6)
+
+-- ============================================================
+-- TABS
+-- ============================================================
+print('[seahook] 07 tabs')
+local CombatTab, VisualsTab, MiscTab, WorldTab, SettingsTab
+local tabOK = pcall(function()
+    CombatTab = Window:AddTab('Combat', 'crosshair')
+    VisualsTab = Window:AddTab('Visuals', 'eye')
+    MiscTab = Window:AddTab('Misc', 'clipboard-list')
+    WorldTab = Window:AddTab('World', 'globe')
+    SettingsTab = Window:AddTab('Settings', 'settings')
+end)
+if not tabOK then
+    local altOK = pcall(function()
+        CombatTab = Window:CreateTab('Combat', 'crosshair')
+        VisualsTab = Window:CreateTab('Visuals', 'eye')
+        MiscTab = Window:CreateTab('Misc', 'clipboard-list')
+        WorldTab = Window:CreateTab('World', 'globe')
+        SettingsTab = Window:CreateTab('Settings', 'settings')
+    end)
+    if not altOK then
+        SHUTDOWN = true
+        if LoadingGui and LoadingGui.Parent then LoadingGui:Destroy() end
+        return
+    end
+end
+print('[seahook] 08 tabs ok')
+setProgress(0.7)
+
+-- ============================================================
+-- SERVICES
+-- ============================================================
+print('[seahook] 09 services')
+local repS = cloneref and cloneref(game:GetService('ReplicatedStorage')) or game:GetService('ReplicatedStorage')
+local plrs = cloneref and cloneref(game:GetService('Players')) or game:GetService('Players')
+local runS = game:GetService('RunService')
+local ws = cloneref and cloneref(game:GetService('Workspace')) or game:GetService('Workspace')
+local uis = game:GetService('UserInputService')
+local lighting = game:GetService('Lighting')
+local lplr = plrs.LocalPlayer
+local camera = workspace.CurrentCamera
+local mouse = lplr:GetMouse()
+
+print('[seahook] 10 rival modules')
+local util, enum, FighterController, SpectateController
+local rivalsOK = pcall(function()
+    util = require(repS.Modules.Utility)
+    enum = require(repS.Modules.EnumLibrary)
+    FighterController = require(lplr.PlayerScripts.Controllers.FighterController)
+    SpectateController = require(lplr.PlayerScripts.Controllers:WaitForChild('SpectateController'))
+end)
+print('[seahook] 11 rivals modules: ' .. tostring(rivalsOK))
+
+-- ============================================================
+-- STATE
+-- ============================================================
+local state = {
+    weaponType = 'Gun',
+    gunSlot = 'Primary',
+    ragebot = false,
+    ragebotFireRate = 0.02,
+    ragebotPrediction = true,
+    triggerbot = false,
+    triggerbotDelay = 0.05,
+    teamCheck = true,
+    deflecting = {},
+    lastFire = 0,
+    lastTrigger = 0,
+    lastSilentFire = 0,
+    equipping = false,
+    desyncLocked = false,
+    silentHookInstalled = false,
+
+    silent_aim = {
+        enable = false, closest_part = false,
+        show_fov = false, show_fill = false, show_outline = true,
+        fov_radius = 180,
+        outline_thickness = 2, outline_transparency = 0.2, fill_transparency = 0.6,
+        spin_enabled = true, spin_speed = 90,
+        outline_gradient = true, fill_gradient = true,
+        outline_color1 = Color3.fromRGB(120, 81, 166),
+        outline_color2 = Color3.fromRGB(255, 255, 255),
+        fill_color1 = Color3.fromRGB(120, 81, 166),
+        fill_color2 = Color3.fromRGB(255, 255, 255),
+        lerp = 0, follow_target = false, follow_gunpoint = false,
+        hit_chance = 100, riot_shield = false,
+    },
+
+    aimbot = {
+        enable = false, closest_part = false,
+        show_fov = false, show_fill = false, show_outline = true,
+        fov_radius = 180, smoothing = 0.35,
+        outline_thickness = 2, outline_transparency = 0.2, fill_transparency = 0.6,
+        spin_enabled = true, spin_speed = 90,
+        outline_gradient = true, fill_gradient = true,
+        outline_color1 = Color3.fromRGB(120, 81, 166),
+        outline_color2 = Color3.fromRGB(255, 255, 255),
+        fill_color1 = Color3.fromRGB(120, 81, 166),
+        fill_color2 = Color3.fromRGB(255, 255, 255),
+        lerp = 0, follow_target = false, follow_gunpoint = false,
+    },
+
+    rb3 = {
+        enable = false,
+        fire_rate = 0.02,
+        hits_per_volley = 2,
+        attack_position = 'behind',
+        behind_dist = 3,
+        under_offset = 6,
+        above_offset = 5,
+        front_dist = 3,
+        orbit_radius = 4,
+        orbit_speed = 8,
+        orbit_height = 2,
+        auto_swap = true,
+        prefer_slot = 1,
+        reload_hide = true,
+        void_y = -1e11,
+        void_spam = false,
+        void_shoot_time = 1,
+        void_hide_time = 1,
+        predict = true,
+        predict_mult = 1.15,
+        jitter = 0.05,
+        smooth_teleport = true,
+    },
+
+    current_aim_target = nil,
+    targeting = { max_distance = 100, part = 'Head', visible_only = false },
+
+    chams = {
+        gun_enabled = false,
+        gun_color = Color3.fromRGB(120, 81, 166),
+        gun_transparency = 0.7,
+        arm_enabled = false,
+        arm_color = Color3.fromRGB(255, 100, 200),
+        arm_transparency = 0.7,
+    },
+
+    skin = {
+        enable = false,
+        user_id = '1',
+        saved_bodies = {},
+    },
+
+    hitnotif = {
+        enable = false,
+        format = '{NAME} | -{DMG} | {HP}',
+        color = Color3.fromRGB(255, 90, 90),
+        duration = 2.5,
+        text_size = 16,
+        position = 'top-right',
+    },
+
+    hitsound = {
+        enable = false,
+        chosen = 'neverlose',
+        volume = 0.6,
+    },
+
+    stretched = {
+        enable = false,
+        ratio = 1.5,
+    },
+
+    fov = {
+        enable = false,
+        value = 80,
+    },
+
+    world = {
+        fog = false, fog_color = Color3.fromRGB(255, 255, 255), fog_start = 150, fog_end = 550,
+        ambient = false, ambient_color = Color3.fromRGB(255, 255, 255),
+        clock = false, clock_time = 14, brightness = false, brightness_level = 1,
+        exposure = false, exposure_level = 0,
+        skybox = false, skybox_selected = 'Deep Space',
+        skybox_remove_sun = false, skybox_remove_moon = false, skybox_remove_stars = false,
+        atmosphere = false, atmosphere_glare = 1.5, atmosphere_haze = 10,
+        atmosphere_offset = 0.4, atmosphere_density = 0.5,
+        atmosphere_color = Color3.fromRGB(255, 255, 255), atmosphere_decay = Color3.fromRGB(90, 60, 30),
+        blur = false, blur_size = 12,
+        bloom = false, bloom_intensity = 1,
+        depth_of_field = false, dof_focus = 25,
+        sun_rays = false, sun_rays_intensity = 0.25,
+        saturation = false, saturation_level = 0, contrast_level = 0,
+        tint_color = Color3.fromRGB(255, 255, 255),
+    },
+}
+
+local slots = { Primary = 1, Secondary = 2, Melee = 3 }
+local function getSlotNumber()
+    if state.weaponType == 'Melee' then return slots.Melee end
+    return slots[state.gunSlot] or 3
+end
+print('[seahook] 12 state ready')
+
+-- ============================================================
+-- HELPERS
+-- ============================================================
+local function isEnemy(player)
+    if player == lplr then return false end
+    if not state.teamCheck then return true end
+    if SpectateController then
+        local duel = SpectateController.CurrentDuelSubject
+        local localDueler = duel and duel:GetDueler(lplr)
+        local localTeam = localDueler and localDueler:Get('TeamID') or nil
+        if localTeam and duel and duel.Duelers then
+            for _, dueler in duel.Duelers do
+                if dueler.Player == player then return dueler:Get('TeamID') ~= localTeam end
+            end
+        end
+    end
+    local pTeam = player:GetAttribute('TeamID')
+    local lTeam = lplr:GetAttribute('TeamID')
+    if pTeam and lTeam then return pTeam ~= lTeam end
+    return true
+end
+
+local function getClosestTarget()
+    local char = lplr.Character
+    if not char then return nil, nil, nil end
+    local myRoot = char:FindFirstChild('HumanoidRootPart')
+    if not myRoot then return nil, nil, nil end
+    local cp, cr, ch, cd = nil, nil, nil, 500
+    for _, player in ipairs(plrs:GetPlayers()) do
+        if not isEnemy(player) then continue end
+        local pChar = player.Character
+        if not pChar then continue end
+        local pRoot = pChar:FindFirstChild('HumanoidRootPart')
+        local pHead = pChar:FindFirstChild('Head')
+        local pHum = pChar:FindFirstChildWhichIsA('Humanoid')
+        if not (pRoot and pHead and pHum and pHum.Health > 0) then continue end
+        local dist = (myRoot.Position - pRoot.Position).Magnitude
+        if dist < cd then cd = dist; cp = player; cr = pRoot; ch = pHead end
+    end
+    return cp, cr, ch
+end
+
+local function updateDeflection()
+    if not FighterController or not FighterController.Objects then return end
+    for _, fo in ipairs(FighterController.Objects) do
+        local player = fo.Player
+        if not player then continue end
+        if not fo.Entity or not fo.Entity:IsAlive() or fo:Get('IsSpectating') then
+            state.deflecting[player] = false
+            continue
+        end
+        local eq = fo.EquippedItem
+        local isKat = eq and eq.ViewModel and eq.ViewModel.Name == 'Katana'
+        local isDef = false
+        if isKat then
+            isDef = (eq._attack_cooldown and eq._attack_cooldown > tick()) or false
+        end
+        state.deflecting[player] = isDef
+    end
+end
+
+local function has_riot(plr)
+    return ws.ViewModels:FindFirstChild(plr.Name .. ' - Riot Shield - Riot Shield') ~= nil
+end
+
+local function check_wall(part)
+    local ray = Ray.new(camera.CFrame.Position, part.Position - camera.CFrame.Position)
+    local hit = ws:FindPartOnRayWithIgnoreList(ray, {lplr.Character, part.Parent})
+    return not hit
+end
+
+local function resolve_target(radius)
+    local TG = state.targeting
+    local closest = TG.max_distance
+    local chosen
+    local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+
+    for _, v in ipairs(plrs:GetPlayers()) do
+        if v ~= lplr and v.Character then
+            local char = v.Character
+            local hum = char:FindFirstChildWhichIsA('Humanoid')
+            local aim_part = char:FindFirstChild(TG.part)
+                or char:FindFirstChild('HitboxHead')
+                or char:FindFirstChild('Head')
+                or char:FindFirstChild('HumanoidRootPart')
+
+            if hum and hum.Health > 0 and aim_part then
+                if state.deflecting[v] then continue end
+                if v:GetAttribute('TeamID') == lplr:GetAttribute('TeamID') then continue end
+                if TG.visible_only and not check_wall(aim_part) then continue end
+                if state.silent_aim.riot_shield and has_riot(v) then continue end
+
+                local pos, on = camera:WorldToViewportPoint(aim_part.Position)
+                if on then
+                    local d = (center - Vector2.new(pos.X, pos.Y)).Magnitude
+                    if d < closest and d <= radius then
+                        chosen = v
+                        closest = d
+                    end
+                end
+            end
+        end
+    end
+    return chosen
+end
+
+local function get_ping()
+    local ok, p = pcall(function()
+        return game:GetService('Stats').Network.ServerStatsItem['Data Ping']:GetValue() / 1000
+    end)
+    return ok and math.clamp(p, 0, 0.35) or 0.05
+end
+
+local function predict_pos(part, ping)
+    if not part then return Vector3.zero end
+    if not state.ragebotPrediction then return part.Position end
+    local vel = part.AssemblyLinearVelocity
+    return part.Position + vel * ping * 0.9
+end
+
+local function best_aim_part(player)
+    local char = player and player.Character
+    if not char then return nil end
+    return char:FindFirstChild('HitboxHead')
+        or char:FindFirstChild('Head')
+        or char:FindFirstChild('HitboxTorso')
+        or char:FindFirstChild('UpperTorso')
+        or char:FindFirstChild('HumanoidRootPart')
+end
+
+print('[seahook] 13 helpers ok')
+
+-- ============================================================
+-- FOV CIRCLES
+-- ============================================================
+print('[seahook] 14 fov circles')
+local function makeFovGui()
+    local gui = Instance.new('ScreenGui')
+    gui.Name = 'sh_fov'
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 1000
+    pcall(function()
+        if gethui then gui.Parent = gethui()
+        else gui.Parent = game:GetService('CoreGui') end
+    end)
+    if not gui.Parent then pcall(function() gui.Parent = lplr:WaitForChild('PlayerGui') end) end
+
+    local frame = Instance.new('Frame', gui)
+    frame.BorderSizePixel = 0
+    frame.BackgroundTransparency = 1
+    frame.Visible = false
+    Instance.new('UICorner', frame).CornerRadius = UDim.new(1, 0)
+
+    local stroke = Instance.new('UIStroke', frame)
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+    local fillGrad = Instance.new('UIGradient', frame)
+    local strokeGrad = Instance.new('UIGradient', stroke)
+
+    return {
+        gui = gui, frame = frame, stroke = stroke,
+        fillGrad = fillGrad, strokeGrad = strokeGrad,
+        currentPos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2),
+        currentRadius = 180, spinAngle = 0,
+    }
+end
+
+local sfov = makeFovGui()
+local afov = makeFovGui()
+
+local function GetMuzzlePos()
+    local fp = ws:FindFirstChild('ViewModels') and ws.ViewModels:FindFirstChild('FirstPerson')
+    if fp then
+        for _, P in ipairs(fp:GetDescendants()) do
+            if P.Name == '_muzzle' and P:IsA('Attachment') then
+                local Pos = camera:WorldToViewportPoint(P.WorldPosition)
+                return Vector2.new(Pos.X, Pos.Y)
+            end
+        end
+    end
+    return Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+end
+
+local function draw_fov(fov, cfg, dt, anchorFn)
+    if not fov or not fov.frame then return end
+    if not (cfg.enable and cfg.show_fov) then
+        if fov.frame.Visible then fov.frame.Visible = false end
+        return
+    end
+    if cfg.spin_enabled then
+        fov.spinAngle = (fov.spinAngle + (cfg.spin_speed or 0) * dt) % 360
+    end
+    local center = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    local anchor = anchorFn and anchorFn() or center
+    local lerp = math.min(dt * (1 / math.max(cfg.lerp or 0, 0.001)), 1)
+    fov.currentPos = fov.currentPos:Lerp(anchor, lerp)
+    fov.currentRadius = fov.currentRadius + (cfg.fov_radius - fov.currentRadius) * lerp
+    fov.frame.Visible = true
+    fov.frame.Size = UDim2.new(0, fov.currentRadius * 2, 0, fov.currentRadius * 2)
+    fov.frame.Position = UDim2.new(0, fov.currentPos.X - fov.currentRadius, 0, fov.currentPos.Y - fov.currentRadius)
+    fov.frame.Rotation = fov.spinAngle
+    fov.frame.BackgroundColor3 = cfg.fill_color1
+    fov.frame.BackgroundTransparency = cfg.show_fill and (cfg.fill_transparency or 0.6) or 1
+    if cfg.show_fill and cfg.fill_gradient then
+        fov.fillGrad.Enabled = true
+        fov.fillGrad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, cfg.fill_color1),
+            ColorSequenceKeypoint.new(1, cfg.fill_color2),
+        })
+        fov.fillGrad.Rotation = fov.spinAngle
+    else
+        fov.fillGrad.Enabled = false
+    end
+    if cfg.show_outline and fov.stroke then
+        fov.stroke.Visible = true
+        fov.stroke.Color = cfg.outline_color1
+        fov.stroke.Transparency = cfg.outline_transparency or 0.2
+        fov.stroke.Thickness = cfg.outline_thickness or 2
+        if cfg.outline_gradient and fov.strokeGrad then
+            fov.strokeGrad.Enabled = true
+            fov.strokeGrad.Color = ColorSequence.new({
+                ColorSequenceKeypoint.new(0, cfg.outline_color1),
+                ColorSequenceKeypoint.new(1, cfg.outline_color2),
+            })
+            fov.strokeGrad.Rotation = fov.spinAngle
+        else
+            if fov.strokeGrad then fov.strokeGrad.Enabled = false end
+        end
+    else
+        if fov.stroke then fov.stroke.Visible = false end
+        if fov.strokeGrad then fov.strokeGrad.Enabled = false end
+    end
+end
+
+runS.RenderStepped:Connect(function(dt)
+    pcall(function()
+        draw_fov(sfov, state.silent_aim, dt, function()
+            local SA = state.silent_aim
+            if SA.follow_target then
+                local t = resolve_target(SA.fov_radius)
+                if t and t.Character and t.Character:FindFirstChild(state.targeting.part) then
+                    local pos, on = camera:WorldToViewportPoint(t.Character[state.targeting.part].Position)
+                    if on then return Vector2.new(pos.X, pos.Y) end
+                end
+            elseif SA.follow_gunpoint then
+                return GetMuzzlePos()
+            end
+            return Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+        end)
+        draw_fov(afov, state.aimbot, dt, function()
+            return Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+        end)
+    end)
+end)
+print('[seahook] 15 fov loops ok')
+
+-- ============================================================
+-- SILENT AIM
+-- ============================================================
+print('[seahook] 16 silent aim hook')
+if rivalsOK and not state.silentHookInstalled then
+    state.silentHookInstalled = true
+    pcall(function()
+        local useItem = repS.Remotes.Replication.Fighter.UseItem
+        if not useItem then return end
+        if not (getrawmetatable and setreadonly) then return end
+        local mt = getrawmetatable(useItem)
+        if not mt then return end
+        local oldNamecall = rawget(mt, '__namecall')
+        if not oldNamecall then return end
+        pcall(function()
+            setreadonly(mt, false)
+            rawset(mt, '__namecall', function(self, ...)
+                if self == useItem then
+                    local SA = state.silent_aim
+                    if SA.enable and tick() - (state.lastSilentFire or 0) > 0.03 then
+                        local args = {...}
+                        if #args >= 3 and args[3] and type(args[3]) == 'table' then
+                            if math.random(1, 100) <= SA.hit_chance then
+                                local closest = resolve_target(SA.fov_radius)
+                                if closest and closest.Character then
+                                    local ap = best_aim_part(closest)
+                                    local myRoot = lplr.Character and lplr.Character:FindFirstChild('HumanoidRootPart')
+                                    if ap and myRoot then
+                                        state.lastSilentFire = tick()
+                                        state.current_aim_target = closest
+                                        local aim_pos = predict_pos(ap, get_ping())
+                                        local aimCF = CFrame.lookAt(myRoot.Position, aim_pos)
+                                        local offset = ap.CFrame:ToObjectSpace(CFrame.new(aim_pos))
+                                        local cd = args[3]
+                                        local key = utf8.char(1)
+                                        if cd[key] then
+                                            cd[key][utf8.char(0)] = util:EncodeCFrame(aimCF)
+                                            cd[key][utf8.char(1)] = util:EncodeCFrame(ap.CFrame)
+                                            cd[key][utf8.char(2)] = ap
+                                            cd[key][utf8.char(3)] = util:EncodeCFrame(offset)
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                        return oldNamecall(self, table.unpack(args))
+                    end
+                end
+                return oldNamecall(self, ...)
+            end)
+            setreadonly(mt, true)
+        end)
+    end)
+end
+print('[seahook] 17 silent aim ok')
+
+-- ============================================================
+-- AIMBOT
+-- ============================================================
+runS.RenderStepped:Connect(function(dt)
+    if not (rivalsOK and state.aimbot.enable) then return end
+    if not FighterController then return end
+    pcall(function()
+        local target = resolve_target(state.aimbot.fov_radius)
+        if not target or not target.Character then
+            state.current_aim_target = nil
+            return
+        end
+        state.current_aim_target = target
+        local part = best_aim_part(target)
+        if not part then return end
+        local goal = CFrame.new(camera.CFrame.Position, part.Position)
+        local alpha = 1 - (1 - math.clamp(state.aimbot.smoothing, 0.001, 1)) ^ (dt * 60)
+        camera.CFrame = camera.CFrame:Lerp(goal, alpha)
+    end)
+end)
+
+-- ============================================================
+-- RAGEBOT
+-- ============================================================
+print('[seahook] 18 ragebot')
+
+local rb3_orbit_angle = 0
+local rb3_void_phase = 'shoot'
+local rb3_void_switch = tick()
+local rb3_saved_pos = nil
+local rb3_last_fire = 0
+local rb3_saved_cam = nil
+local rb3_hold_cam_until = 0
+
+local function rb3_pos_for(target_root, dt)
+    local mode = state.rb3.attack_position
+    local base = target_root.Position
+    local look = target_root.CFrame.LookVector
+    if mode == 'behind' then return base - look * state.rb3.behind_dist + Vector3.new(0, 2, 0)
+    elseif mode == 'front' then return base + look * state.rb3.front_dist + Vector3.new(0, 2, 0)
+    elseif mode == 'under' then return base - Vector3.new(0, state.rb3.under_offset, 0)
+    elseif mode == 'above' then return base + Vector3.new(0, state.rb3.above_offset, 0)
+    elseif mode == 'orbit' then
+        rb3_orbit_angle = rb3_orbit_angle + state.rb3.orbit_speed * dt
+        local ox = math.cos(rb3_orbit_angle) * state.rb3.orbit_radius
+        local oz = math.sin(rb3_orbit_angle) * state.rb3.orbit_radius
+        return base + Vector3.new(ox, state.rb3.orbit_height, oz)
+    end
+    return base + Vector3.new(0, 2, 0)
+end
+
+local function rb3_is_reloading()
+    if not FighterController or not FighterController.LocalFighter then return false end
+    local item = FighterController.LocalFighter.EquippedItem
+    if not item then return false end
+    local ok, reloading = pcall(function()
+        for _, k in ipairs({ 'Reloading', 'IsReloading', 'IsReload' }) do
+            local v = item:Get(k)
+            if v == true or v == 1 then return true end
+        end
+        return false
+    end)
+    return ok and reloading or false
+end
+
+local function rb3_ammo_empty()
+    if not FighterController or not FighterController.LocalFighter then return false end
+    local item = FighterController.LocalFighter.EquippedItem
+    if not item then return false end
+    local ok, empty = pcall(function()
+        local cur = item:Get('CurrentAmmo') or item:Get('Ammo')
+        if cur == nil then return false end
+        return cur <= 0
+    end)
+    return ok and empty or false
+end
+
+local function rb3_equip_preferred()
+    if not state.rb3.auto_swap then return end
+    if not FighterController or not FighterController.LocalFighter then return end
+    pcall(function() FighterController.LocalFighter:EquipItem(state.rb3.prefer_slot) end)
+end
+
+local function rb3_hide_in_void()
+    local char = lplr.Character
+    if not char then return end
+    local root = char:FindFirstChild('HumanoidRootPart')
+    if not root then return end
+    rb3_saved_pos = rb3_saved_pos or root.CFrame
+    root.CFrame = CFrame.new(
+        math.random(-10000, 10000),
+        state.rb3.void_y,
+        math.random(-10000, 10000)
+    )
+end
+
+local function rb3_restore_void()
+    if rb3_saved_pos and lplr.Character then
+        local root = lplr.Character:FindFirstChild('HumanoidRootPart')
+        if root then root.CFrame = rb3_saved_pos end
+    end
+    rb3_saved_pos = nil
+end
+
+runS.RenderStepped:Connect(function()
+    pcall(function()
+        if not state.rb3.smooth_teleport then return end
+        if tick() < rb3_hold_cam_until and rb3_saved_cam then
+            local cam = workspace.CurrentCamera
+            if cam then cam.CFrame = rb3_saved_cam end
+        end
+    end)
+end)
+
+runS.Heartbeat:Connect(function(dt)
+    pcall(function()
+        updateDeflection()
+        if not rivalsOK then return end
+        if not state.rb3.enable then return end
+
+        if state.rb3.reload_hide and (rb3_is_reloading() or rb3_ammo_empty()) then
+            rb3_hide_in_void(); return
+        else
+            rb3_restore_void()
+        end
+
+        if state.rb3.void_spam then
+            local elapsed = tick() - rb3_void_switch
+            if rb3_void_phase == 'shoot' then
+                if elapsed > state.rb3.void_shoot_time then
+                    rb3_void_phase = 'hide'; rb3_void_switch = tick()
+                end
+            else
+                if elapsed > state.rb3.void_hide_time then
+                    rb3_void_phase = 'shoot'; rb3_void_switch = tick()
+                end
+                rb3_hide_in_void(); return
+            end
+        end
+
+        local tp, tr, th = getClosestTarget()
+        if not tp or not tr or not th then return end
+        if state.deflecting[tp] then return end
+        if not lplr.Character then return end
+        local myRoot = lplr.Character:FindFirstChild('HumanoidRootPart')
+        if not myRoot then return end
+        if not FighterController or not FighterController.LocalFighter then return end
+
+        rb3_equip_preferred()
+
+        local item = FighterController.LocalFighter.EquippedItem
+        if not item then return end
+        if tick() - rb3_last_fire < state.rb3.fire_rate then return end
+        rb3_last_fire = tick()
+
+        if state.rb3.smooth_teleport then
+            local cam = workspace.CurrentCamera
+            if cam then
+                rb3_saved_cam = cam.CFrame
+                rb3_hold_cam_until = tick() + 0.05
+            end
+        end
+
+        local attack_pos = rb3_pos_for(tr, dt)
+        myRoot.CFrame = CFrame.new(attack_pos, th.Position)
+
+        local ap = best_aim_part(tp)
+        if not ap then return end
+        local ping = get_ping()
+        local aim_pos = state.rb3.predict and (ap.Position + ap.AssemblyLinearVelocity * ping * state.rb3.predict_mult) or ap.Position
+
+        local j = state.rb3.jitter
+        if j > 0 then
+            aim_pos = aim_pos + Vector3.new(
+                (math.random() - 0.5) * j,
+                (math.random() - 0.5) * j,
+                (math.random() - 0.5) * j
+            )
+        end
+
+        local origin = myRoot.Position
+        local aimCF = CFrame.lookAt(origin, aim_pos)
+        local tCF = ap.CFrame
+        local offset = ap.CFrame:ToObjectSpace(CFrame.new(aim_pos))
+
+        for _ = 1, state.rb3.hits_per_volley do
+            local cd = {}
+            cd[utf8.char(1)] = {
+                [utf8.char(0)] = util:EncodeCFrame(aimCF),
+                [utf8.char(1)] = util:EncodeCFrame(tCF),
+                [utf8.char(2)] = ap,
+                [utf8.char(3)] = util:EncodeCFrame(offset),
+            }
+            pcall(function()
+                repS.Remotes.Replication.Fighter.UseItem:FireServer(
+                    item:Get('ObjectID'),
+                    enum:ToEnum('StartShooting'),
+                    cd, nil
+                )
+            end)
+        end
+    end)
+end)
+print('[seahook] 19 ragebot ok')
+
+-- ============================================================
+-- TRIGGERBOT
+-- ============================================================
+runS.Heartbeat:Connect(function()
+    pcall(function()
+        if not state.triggerbot then return end
+        if tick() - state.lastTrigger < state.triggerbotDelay then return end
+        if not rivalsOK then return end
+        local mp = uis:GetMouseLocation()
+        local ray = camera:ViewportPointToRay(mp.X, mp.Y)
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        params.FilterDescendantsInstances = {lplr.Character}
+        local result = workspace:Raycast(ray.Origin, ray.Direction * 500, params)
+        if result and result.Instance then
+            local model = result.Instance:FindFirstAncestorOfClass('Model')
+            if model then
+                local plr = plrs:GetPlayerFromCharacter(model)
+                if plr and isEnemy(plr) then
+                    local hum = model:FindFirstChildWhichIsA('Humanoid')
+                    if hum and hum.Health > 0 then
+                        state.lastTrigger = tick()
+                        local item = FighterController.LocalFighter.EquippedItem
+                        if item then
+                            local aimCF = CFrame.lookAt(camera.CFrame.Position, result.Position)
+                            local cd = {}
+                            cd[utf8.char(1)] = {
+                                [utf8.char(0)] = util:EncodeCFrame(aimCF),
+                                [utf8.char(1)] = util:EncodeCFrame(CFrame.new(result.Position)),
+                                [utf8.char(2)] = result.Instance,
+                                [utf8.char(3)] = util:EncodeCFrame(CFrame.new())
+                            }
+                            repS.Remotes.Replication.Fighter.UseItem:FireServer(item:Get('ObjectID'), enum:ToEnum('StartShooting'), cd, nil)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+end)
+
+-- ============================================================
+-- VIEWMODEL CHAMS + SKIN + HIT NOTIF + HIT SOUNDS
+-- ============================================================
+local function isArmModel(model)
+    if not model or not model.Name then return false end
+    local n = string.lower(model.Name)
+    return n:find('arm', 1, true) or n:find('hand', 1, true) or n:find('glove', 1, true)
+end
+
+local function isGunModel(model)
+    if not model or not model.Name then return false end
+    return not isArmModel(model)
+end
+
+local function applyChamsToModel(model, color, transparency)
+    if not model then return end
+    local existing = model:FindFirstChild('sh_chams')
+    if existing then existing:Destroy() end
+    local hl = Instance.new('Highlight')
+    hl.Name = 'sh_chams'
+    hl.Adornee = model
+    hl.FillColor = color
+    hl.FillTransparency = 1 - transparency
+    hl.OutlineColor = color
+    hl.OutlineTransparency = 0
+    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent = model
+end
+
+task.spawn(function()
+    while task.wait(0.25) do
+        pcall(function()
+            local ch = state.chams
+            if not ch.gun_enabled and not ch.arm_enabled then return end
+            local vm = ws:FindFirstChild('ViewModels')
+            local fp = vm and vm:FindFirstChild('FirstPerson')
+            if not fp then return end
+            for _, model in ipairs(fp:GetChildren()) do
+                if model:IsA('Model') then
+                    if ch.arm_enabled and isArmModel(model) then
+                        applyChamsToModel(model, ch.arm_color, ch.arm_transparency)
+                    elseif ch.gun_enabled and isGunModel(model) then
+                        applyChamsToModel(model, ch.gun_color, ch.gun_transparency)
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+local function applySkin(userId)
+    if not userId or userId == '' or userId == '0' then return end
+    local ok = pcall(function()
+        local Players = game:GetService('Players')
+        local desc = Players:GetHumanoidDescriptionFromUserId(tonumber(userId))
+        if not desc then return end
+        local char = lplr.Character
+        if not char then return end
+        local hum = char:FindFirstChildWhichIsA('Humanoid')
+        if not hum then return end
+        if not state.skin.saved_bodies[lplr] then
+            local saved = {}
+            for _, p in ipairs(char:GetDescendants()) do
+                if p:IsA('BasePart') then
+                    saved[p] = { Color = p.Color, Material = p.Material }
+                end
+            end
+            state.skin.saved_bodies[lplr] = saved
+        end
+        hum:ApplyDescription(desc)
+    end)
+    if not ok then
+        Library:Notify('skin changer: failed to load that user', 3)
+    end
+end
+
+local function restoreSkin()
+    local saved = state.skin.saved_bodies[lplr]
+    if not saved then return end
+    for part, data in pairs(saved) do
+        if part and part.Parent then
+            pcall(function()
+                part.Color = data.Color
+                part.Material = data.Material
+            end)
+        end
+    end
+    state.skin.saved_bodies[lplr] = nil
+end
+
+local hitSounds = {
+    neverlose = 'rbxassetid://97643101798871',
+    oof = 'rbxassetid://122682063835129',
+    rust = 'rbxassetid://1255040462',
+    csgo = 'rbxassetid://5764885315',
+    minecraft = 'rbxassetid://1053296915',
+    bonk = 'rbxassetid://5766898159',
+    bubble = 'rbxassetid://6534947588',
+    gamesense = 'rbxassetid://4817809188',
+}
+
+local function playHitSound()
+    if not state.hitsound.enable then return end
+    local id = hitSounds[state.hitsound.chosen]
+    if not id then return end
+    local snd = Instance.new('Sound')
+    snd.SoundId = id
+    snd.Volume = state.hitsound.volume
+    snd.Parent = lplr:FindFirstChild('PlayerGui') or workspace
+    snd:Play()
+    game:GetService('Debris'):AddItem(snd, 4)
+end
+
+local function showHitNotif(targetName, dmg, hp)
+    if not state.hitnotif.enable then return end
+    local text = state.hitnotif.format
+        :gsub('{NAME}', targetName or '?')
+        :gsub('{DMG}', tostring(math.floor(dmg or 0)))
+        :gsub('{HP}', tostring(math.floor(hp or 0)))
+
+    pcall(function()
+        local ScreenGui = Instance.new('ScreenGui')
+        ScreenGui.Name = 'sh_hitnotif'
+        ScreenGui.ResetOnSpawn = false
+        ScreenGui.IgnoreGuiInset = true
+        ScreenGui.Parent = lplr:FindFirstChild('PlayerGui') or gethui and gethui() or game:GetService('CoreGui')
+
+        local lbl = Instance.new('TextLabel')
+        lbl.BackgroundTransparency = 1
+        lbl.Text = text
+        lbl.TextColor3 = state.hitnotif.color
+        lbl.TextSize = state.hitnotif.text_size
+        lbl.Font = Enum.Font.GothamBold
+        lbl.TextStrokeTransparency = 0
+        lbl.TextStrokeColor3 = Color3.new(0, 0, 0)
+        lbl.Size = UDim2.fromOffset(500, 30)
+        lbl.TextXAlignment = Enum.TextXAlignment.Center
+        lbl.Parent = ScreenGui
+
+        local cam = workspace.CurrentCamera
+        local vp = cam.ViewportSize
+
+        local pos = state.hitnotif.position
+        if pos == 'top-right' then
+            lbl.Position = UDim2.fromOffset(vp.X - 520, 20)
+        elseif pos == 'top-left' then
+            lbl.Position = UDim2.fromOffset(20, 20)
+        elseif pos == 'top-center' then
+            lbl.Position = UDim2.fromOffset(vp.X/2 - 250, 20)
+        elseif pos == 'bottom-center' then
+            lbl.Position = UDim2.fromOffset(vp.X/2 - 250, vp.Y - 80)
+        elseif pos == 'center' then
+            lbl.Position = UDim2.fromOffset(vp.X/2 - 250, vp.Y/2 - 15)
+        end
+
+        task.spawn(function()
+            task.wait(state.hitnotif.duration)
+            pcall(function() ScreenGui:Destroy() end)
+        end)
+    end)
+end
+
+local lastHealth = {}
+task.spawn(function()
+    while task.wait(0.1) do
+        pcall(function()
+            if not state.hitnotif.enable and not state.hitsound.enable then return end
+            for _, p in ipairs(plrs:GetPlayers()) do
+                if p == lplr then continue end
+                local char = p.Character
+                if not char then continue end
+                local hum = char:FindFirstChildWhichIsA('Humanoid')
+                if not hum then continue end
+                local prev = lastHealth[p]
+                if prev and hum.Health < prev then
+                    local dmg = prev - hum.Health
+                    showHitNotif(p.Name, dmg, hum.Health)
+                    playHitSound()
+                end
+                lastHealth[p] = hum.Health
+            end
+        end)
+    end
+end)
+
+local stretchedBind = 'sh_stretched'
+local function applyStretched()
+    local cam = workspace.CurrentCamera
+    if not cam then return end
+    if state.stretched.enable then
+        local ratio = state.stretched.ratio
+        cam.CFrame = CFrame.new(cam.CFrame.Position) * CFrame.Angles(0, 0, 0) *
+            CFrame.fromMatrix(Vector3.zero, Vector3.xAxis, Vector3.new(0, ratio, 0).Unit, Vector3.zAxis)
+    end
+end
+runS:BindToRenderStep(stretchedBind, Enum.RenderPriority.Camera.Value + 10, function()
+    pcall(applyStretched)
+end)
+
+task.spawn(function()
+    while task.wait(0.1) do
+        pcall(function()
+            local cam = workspace.CurrentCamera
+            if not cam then return end
+            if state.fov.enable then
+                cam.FieldOfView = math.clamp(state.fov.value, 10, 120)
+            end
+        end)
+    end
+end)
+
+-- ============================================================
+-- WORLD LIGHTNING
+-- ============================================================
+print('[seahook] 20 world')
+local world_originals = {
+    fog_color = lighting.FogColor, fog_start = lighting.FogStart, fog_end = lighting.FogEnd,
+    ambient = lighting.Ambient, clock_time = lighting.ClockTime,
+    brightness = lighting.Brightness, exposure = lighting.ExposureCompensation,
+}
+
+local shader_blur = Instance.new('BlurEffect')
+shader_blur.Name = 'sh_blur'; shader_blur.Enabled = false; shader_blur.Size = 12; shader_blur.Parent = lighting
+
+local shader_bloom = Instance.new('BloomEffect')
+shader_bloom.Name = 'sh_bloom'; shader_bloom.Enabled = false
+shader_bloom.Intensity = 1; shader_bloom.Size = 24; shader_bloom.Threshold = 0.9; shader_bloom.Parent = lighting
+
+local shader_dof = Instance.new('DepthOfFieldEffect')
+shader_dof.Name = 'sh_dof'; shader_dof.Enabled = false
+shader_dof.FocusDistance = 25; shader_dof.InFocusRadius = 10
+shader_dof.NearIntensity = 0.15; shader_dof.FarIntensity = 0.15; shader_dof.Parent = lighting
+
+local shader_sunrays = Instance.new('SunRaysEffect')
+shader_sunrays.Name = 'sh_sunrays'; shader_sunrays.Enabled = false
+shader_sunrays.Intensity = 0.25; shader_sunrays.Spread = 1; shader_sunrays.Parent = lighting
+
+local shader_cc = Instance.new('ColorCorrectionEffect')
+shader_cc.Name = 'sh_cc'; shader_cc.Enabled = false
+shader_cc.Saturation = 0; shader_cc.Contrast = 0
+shader_cc.TintColor = Color3.fromRGB(255, 255, 255); shader_cc.Parent = lighting
+
+local atmosphere_object = lighting:FindFirstChildOfClass('Atmosphere')
+if not atmosphere_object then atmosphere_object = Instance.new('Atmosphere') end
+atmosphere_object.Parent = nil
+
+local function update_atmosphere()
+    local W = state.world
+    if not W.atmosphere then atmosphere_object.Parent = nil; return end
+    atmosphere_object.Parent = lighting
+    atmosphere_object.Glare = W.atmosphere_glare
+    atmosphere_object.Haze = W.atmosphere_haze
+    atmosphere_object.Offset = W.atmosphere_offset
+    atmosphere_object.Density = W.atmosphere_density
+    atmosphere_object.Color = W.atmosphere_color
+    atmosphere_object.Decay = W.atmosphere_decay
+end
+
+local skybox_list = {
+    ['Deep Space'] = { SkyboxBk='http://www.roblox.com/asset/?id=159248188', SkyboxDn='http://www.roblox.com/asset/?id=159248183', SkyboxFt='http://www.roblox.com/asset/?id=159248187', SkyboxLf='http://www.roblox.com/asset/?id=159248173', SkyboxRt='http://www.roblox.com/asset/?id=159248192', SkyboxUp='http://www.roblox.com/asset/?id=159248176' },
+    ['Purple Nebula'] = { SkyboxBk='http://www.roblox.com/asset/?id=159454299', SkyboxDn='http://www.roblox.com/asset/?id=159454296', SkyboxFt='http://www.roblox.com/asset/?id=159454299', SkyboxLf='http://www.roblox.com/asset/?id=159454299', SkyboxRt='http://www.roblox.com/asset/?id=159454299', SkyboxUp='http://www.roblox.com/asset/?id=159454288' },
+    ['Night'] = { SkyboxBk='rbxassetid://48020371', SkyboxDn='rbxassetid://48020144', SkyboxFt='rbxassetid://48020234', SkyboxLf='rbxassetid://48020211', SkyboxRt='rbxassetid://48020254', SkyboxUp='rbxassetid://48020383' },
+    ['Space'] = { SkyboxBk='rbxassetid://149397692', SkyboxDn='rbxassetid://149397686', SkyboxFt='rbxassetid://149397697', SkyboxLf='rbxassetid://149397684', SkyboxRt='rbxassetid://149397688', SkyboxUp='rbxassetid://149397702' },
+    ['Pink Sky'] = { SkyboxBk='http://www.roblox.com/asset/?id=271042516', SkyboxDn='http://www.roblox.com/asset/?id=271077243', SkyboxFt='http://www.roblox.com/asset/?id=271042556', SkyboxLf='http://www.roblox.com/asset/?id=271042310', SkyboxRt='http://www.roblox.com/asset/?id=271042467', SkyboxUp='http://www.roblox.com/asset/?id=271077958' },
+    ['Green Sky'] = { SkyboxBk='rbxassetid://921882045', SkyboxDn='rbxassetid://921881907', SkyboxFt='rbxassetid://921882121', SkyboxLf='rbxassetid://921881811', SkyboxRt='rbxassetid://921881989', SkyboxUp='rbxassetid://921882259' },
+    ['Minecraft'] = { SkyboxBk='rbxassetid://1876545003', SkyboxDn='rbxassetid://1876544331', SkyboxFt='rbxassetid://1876542941', SkyboxLf='rbxassetid://1876543392', SkyboxRt='rbxassetid://1876543764', SkyboxUp='rbxassetid://1876544642' },
+    ['Sunset'] = { SkyboxBk='rbxassetid://150939022', SkyboxDn='rbxassetid://150939038', SkyboxFt='rbxassetid://150939047', SkyboxLf='rbxassetid://150939056', SkyboxRt='rbxassetid://150939063', SkyboxUp='rbxassetid://150939082' },
+    ['Blank'] = { SkyboxBk='http://www.roblox.com/asset/?ID=1361097', SkyboxDn='http://www.roblox.com/asset/?ID=1361097', SkyboxFt='http://www.roblox.com/asset/?ID=1361097', SkyboxLf='http://www.roblox.com/asset/?ID=1361097', SkyboxRt='http://www.roblox.com/asset/?ID=1361097', SkyboxUp='http://www.roblox.com/asset/?ID=1361097' },
+}
+
+local sky_elements = {}
+for k in next, skybox_list do table.insert(sky_elements, k) end
+table.sort(sky_elements)
+
+local default_skybox_clone = lighting:FindFirstChildOfClass('Sky') and lighting:FindFirstChildOfClass('Sky'):Clone() or nil
+
+local function update_skybox()
+    for _, v in next, lighting:GetChildren() do
+        if v:IsA('Sky') then v:Destroy() end
+    end
+    local W = state.world
+    local Sky
+    if not W.skybox then
+        if default_skybox_clone then
+            Sky = default_skybox_clone:Clone()
+            Sky.Parent = lighting
+        end
+    else
+        local data = skybox_list[W.skybox_selected]
+        if not data then return end
+        Sky = Instance.new('Sky')
+        Sky.SkyboxBk = data.SkyboxBk; Sky.SkyboxDn = data.SkyboxDn
+        Sky.SkyboxFt = data.SkyboxFt; Sky.SkyboxLf = data.SkyboxLf
+        Sky.SkyboxRt = data.SkyboxRt; Sky.SkyboxUp = data.SkyboxUp
+        Sky.Parent = lighting
+    end
+    if Sky then
+        if W.skybox_remove_sun then Sky.SunTextureId = '' end
+        if W.skybox_remove_moon then Sky.MoonTextureId = '' end
+        if W.skybox_remove_stars then Sky.StarCount = 0 end
+    end
+end
+
+runS.Heartbeat:Connect(function()
+    pcall(function()
+        local W = state.world
+        if W.fog then
+            lighting.FogColor = W.fog_color
+            lighting.FogStart = W.fog_start
+            lighting.FogEnd = W.fog_end
+        end
+        if W.ambient then lighting.Ambient = W.ambient_color end
+        if W.clock then lighting.ClockTime = W.clock_time end
+        if W.brightness then lighting.Brightness = W.brightness_level end
+        if W.exposure then lighting.ExposureCompensation = W.exposure_level end
+    end)
+end)
+print('[seahook] 21 world loops ok')
+
+setProgress(0.9)
+
+-- ============================================================
+-- UI
+-- ============================================================
+print('[seahook] 22 building ui')
+local function try(name, fn)
+    local ok, err = pcall(fn)
+    if not ok then warn('[seahook ui] ' .. name .. ': ' .. tostring(err)) end
+end
+
+try('weapon', function()
+    local G = CombatTab:AddLeftGroupbox('Weapon')
+    G:AddDropdown('WeaponType', { Text = 'Weapon Type', Values = {'Gun','Melee'}, Default = 'Gun',
+        Callback = function(v)
+            state.weaponType = v
+            if FighterController and FighterController.LocalFighter then
+                pcall(function() FighterController.LocalFighter:EquipItem(getSlotNumber()) end)
+            end
+        end })
+    G:AddDropdown('GunSlot', { Text = 'Gun Slot', Values = {'Primary','Secondary'}, Default = 'Primary',
+        Callback = function(v)
+            state.gunSlot = v
+            if FighterController and FighterController.LocalFighter then
+                pcall(function() FighterController.LocalFighter:EquipItem(getSlotNumber()) end)
+            end
+        end })
+end)
+
+try('ragebot ui', function()
+    local G = CombatTab:AddRightGroupbox('Ragebot')
+    G:AddToggle('RB3_Enable', { Text = 'Enable Ragebot', Default = false, Callback = function(v) state.rb3.enable = v end })
+    G:AddSlider('RB3_FireRate', { Text = 'Fire Rate', Default = 0.02, Min = 0.001, Max = 0.2, Rounding = 3, Callback = function(v) state.rb3.fire_rate = v end })
+    G:AddSlider('RB3_HitsPerVolley', { Text = 'Hits Per Volley', Default = 2, Min = 1, Max = 8, Rounding = 0, Callback = function(v) state.rb3.hits_per_volley = v end })
+    G:AddDropdown('RB3_AttackPos', { Text = 'Attack Position', Default = 'behind', Values = { 'behind', 'under', 'above', 'front', 'orbit' }, Callback = function(v) state.rb3.attack_position = v end })
+    G:AddSlider('RB3_BehindDist', { Text = 'Behind Distance', Default = 3, Min = 1, Max = 15, Rounding = 1, Callback = function(v) state.rb3.behind_dist = v end })
+    G:AddSlider('RB3_OrbitRadius', { Text = 'Orbit Radius', Default = 4, Min = 1, Max = 15, Rounding = 1, Callback = function(v) state.rb3.orbit_radius = v end })
+    G:AddSlider('RB3_OrbitSpeed', { Text = 'Orbit Speed', Default = 8, Min = 1, Max = 30, Rounding = 1, Callback = function(v) state.rb3.orbit_speed = v end })
+    G:AddToggle('RB3_AutoSwap', { Text = 'Auto Weapon Swap', Default = true, Callback = function(v) state.rb3.auto_swap = v end })
+    G:AddDropdown('RB3_PreferSlot', { Text = 'Prefer Slot', Default = '1 (primary)', Values = { '1 (primary)', '2 (secondary)', '3 (melee)' }, Callback = function(v) state.rb3.prefer_slot = tonumber(v:match('%d')) or 1 end })
+    G:AddToggle('RB3_ReloadHide', { Text = 'Hide While Reloading', Default = true, Callback = function(v) state.rb3.reload_hide = v end })
+    G:AddToggle('RB3_VoidSpam', { Text = 'Void Spam', Default = false, Callback = function(v) state.rb3.void_spam = v rb3_void_phase = 'shoot' rb3_void_switch = tick() if not v then rb3_restore_void() end end })
+    G:AddToggle('RB3_Predict', { Text = 'Prediction', Default = true, Callback = function(v) state.rb3.predict = v end })
+    G:AddSlider('RB3_PredictMult', { Text = 'Prediction Mult', Default = 1.15, Min = 0.5, Max = 2, Rounding = 2, Callback = function(v) state.rb3.predict_mult = v end })
+    G:AddSlider('RB3_Jitter', { Text = 'Jitter', Default = 0.05, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.rb3.jitter = v end })
+    G:AddToggle('RB3_SmoothTeleport', { Text = 'Smooth Teleport', Default = true, Callback = function(v) state.rb3.smooth_teleport = v end })
+end)
+
+try('silent aim ui', function()
+    local G = CombatTab:AddLeftGroupbox('Silent Aim')
+    G:AddToggle('SilentAimToggle', { Text = 'Enable', Default = false, Callback = function(v) state.silent_aim.enable = v end }):AddColorPicker('SA_FillColorPicker', { Title = 'FOV Fill', Default = state.silent_aim.fill_color1, Callback = function(v) state.silent_aim.fill_color1 = v end })
+    G:AddColorPicker('SA_OutlineColorPicker', { Title = 'FOV Outline', Default = state.silent_aim.outline_color1, Callback = function(v) state.silent_aim.outline_color1 = v end })
+    G:AddSlider('SilentAimRadius', { Text = 'Radius', Default = 180, Min = 1, Max = 600, Rounding = 0, Suffix = 'px', Callback = function(v) state.silent_aim.fov_radius = v end })
+    G:AddToggle('SilentAimShowFov', { Text = 'Show FOV', Default = false, Callback = function(v) state.silent_aim.show_fov = v end })
+    G:AddToggle('SilentAimShowFill', { Text = 'Show Fill', Default = false, Callback = function(v) state.silent_aim.show_fill = v end })
+    G:AddToggle('SilentAimShowOutline', { Text = 'Show Outline', Default = true, Callback = function(v) state.silent_aim.show_outline = v end })
+    G:AddSlider('SA_Thickness', { Text = 'Outline Thickness', Default = 2, Min = 1, Max = 10, Rounding = 0, Suffix = 'px', Callback = function(v) state.silent_aim.outline_thickness = v end })
+    G:AddSlider('SA_FillTrans', { Text = 'Fill Transparency', Default = 0.6, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.silent_aim.fill_transparency = v end })
+    G:AddSlider('SA_OutlineTrans', { Text = 'Outline Transparency', Default = 0.2, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.silent_aim.outline_transparency = v end })
+    G:AddToggle('SA_SpinEnable', { Text = 'Spin Animation', Default = true, Callback = function(v) state.silent_aim.spin_enabled = v end })
+    G:AddSlider('SA_SpinSpeed', { Text = 'Spin Speed', Default = 90, Min = 0, Max = 720, Rounding = 0, Suffix = 'deg/s', Callback = function(v) state.silent_aim.spin_speed = v end })
+    G:AddColorPicker('SA_FillColor1Full', { Title = 'Fill Color 1', Default = state.silent_aim.fill_color1, Callback = function(v) state.silent_aim.fill_color1 = v end })
+    G:AddColorPicker('SA_FillColor2Full', { Title = 'Fill Color 2', Default = state.silent_aim.fill_color2, Callback = function(v) state.silent_aim.fill_color2 = v end })
+    G:AddToggle('SA_FillGrad', { Text = 'Fill Gradient', Default = true, Callback = function(v) state.silent_aim.fill_gradient = v end })
+    G:AddColorPicker('SA_OutlineColor1Full', { Title = 'Outline Color 1', Default = state.silent_aim.outline_color1, Callback = function(v) state.silent_aim.outline_color1 = v end })
+    G:AddColorPicker('SA_OutlineColor2Full', { Title = 'Outline Color 2', Default = state.silent_aim.outline_color2, Callback = function(v) state.silent_aim.outline_color2 = v end })
+    G:AddToggle('SA_OutlineGrad', { Text = 'Outline Gradient', Default = true, Callback = function(v) state.silent_aim.outline_gradient = v end })
+    G:AddToggle('SA_FollowTargetFull', { Text = 'Follow Target', Default = false, Callback = function(v) state.silent_aim.follow_target = v end })
+    G:AddToggle('SA_FollowGunpointFull', { Text = 'Follow Gunpoint', Default = false, Callback = function(v) state.silent_aim.follow_gunpoint = v end })
+    G:AddSlider('SA_HitChance', { Text = 'Hit Chance', Default = 100, Min = 1, Max = 100, Rounding = 0, Suffix = '%', Callback = function(v) state.silent_aim.hit_chance = v end })
+    G:AddDropdown('SA_HitPart', { Text = 'Hit Part', Values = {'Head','HumanoidRootPart','UpperTorso','LowerTorso'}, Default = 'Head', Callback = function(v) state.targeting.part = v end })
+    G:AddSlider('TargetMaxDist', { Text = 'Max Distance', Default = 100, Min = 100, Max = 700, Rounding = 0, Callback = function(v) state.targeting.max_distance = v end })
+end)
+
+try('aimbot ui', function()
+    local G = CombatTab:AddRightGroupbox('Aimbot')
+    G:AddToggle('AimbotEnable', { Text = 'Enable', Default = false, Callback = function(v) state.aimbot.enable = v end }):AddColorPicker('AB_FillColorPicker', { Title = 'FOV Fill', Default = state.aimbot.fill_color1, Callback = function(v) state.aimbot.fill_color1 = v end })
+    G:AddColorPicker('AB_OutlineColorPicker', { Title = 'FOV Outline', Default = state.aimbot.outline_color1, Callback = function(v) state.aimbot.outline_color1 = v end })
+    G:AddSlider('AimbotRadius', { Text = 'Radius', Default = 180, Min = 1, Max = 600, Rounding = 0, Suffix = 'px', Callback = function(v) state.aimbot.fov_radius = v end })
+    G:AddSlider('AimbotSmoothing', { Text = 'Smoothing', Default = 0.35, Min = 0.01, Max = 1, Rounding = 2, Callback = function(v) state.aimbot.smoothing = v end })
+    G:AddToggle('AimbotShowFov', { Text = 'Show FOV', Default = false, Callback = function(v) state.aimbot.show_fov = v end })
+    G:AddToggle('AimbotShowFill', { Text = 'Show Fill', Default = false, Callback = function(v) state.aimbot.show_fill = v end })
+    G:AddToggle('AimbotShowOutline', { Text = 'Show Outline', Default = true, Callback = function(v) state.aimbot.show_outline = v end })
+    G:AddSlider('AB_Thickness', { Text = 'Outline Thickness', Default = 2, Min = 1, Max = 10, Rounding = 0, Suffix = 'px', Callback = function(v) state.aimbot.outline_thickness = v end })
+    G:AddSlider('AB_FillTrans', { Text = 'Fill Transparency', Default = 0.6, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.aimbot.fill_transparency = v end })
+    G:AddSlider('AB_OutlineTrans', { Text = 'Outline Transparency', Default = 0.2, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.aimbot.outline_transparency = v end })
+    G:AddColorPicker('AB_FillColor1Full', { Title = 'Fill Color 1', Default = state.aimbot.fill_color1, Callback = function(v) state.aimbot.fill_color1 = v end })
+    G:AddColorPicker('AB_FillColor2Full', { Title = 'Fill Color 2', Default = state.aimbot.fill_color2, Callback = function(v) state.aimbot.fill_color2 = v end })
+    G:AddColorPicker('AB_OutlineColor1Full', { Title = 'Outline Color 1', Default = state.aimbot.outline_color1, Callback = function(v) state.aimbot.outline_color1 = v end })
+    G:AddColorPicker('AB_OutlineColor2Full', { Title = 'Outline Color 2', Default = state.aimbot.outline_color2, Callback = function(v) state.aimbot.outline_color2 = v end })
+end)
+
+try('triggerbot', function()
+    local G = CombatTab:AddLeftGroupbox('Trigger Bot')
+    G:AddToggle('TriggerBotToggle', { Text = 'Enable', Default = false, Callback = function(v) state.triggerbot = v end })
+    G:AddSlider('TriggerBotDelay', { Text = 'Trigger Delay', Default = 0.05, Min = 0.01, Max = 1, Rounding = 2, Suffix = 's', Callback = function(v) state.triggerbotDelay = v end })
+end)
+
+try('viewmodel chams', function()
+    local G = VisualsTab:AddLeftGroupbox('Viewmodel Chams')
+    G:AddToggle('ChamsGunEnable', { Text = 'Gun Chams', Default = false, Callback = function(v) state.chams.gun_enabled = v end }):AddColorPicker('ChamsGunColor', { Title = 'Gun Color', Default = state.chams.gun_color, Callback = function(c) state.chams.gun_color = c end })
+    G:AddSlider('ChamsGunTransparency', { Text = 'Gun Transparency', Default = 0.7, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.chams.gun_transparency = v end })
+    G:AddToggle('ChamsArmEnable', { Text = 'Arm Chams', Default = false, Callback = function(v) state.chams.arm_enabled = v end }):AddColorPicker('ChamsArmColor', { Title = 'Arm Color', Default = state.chams.arm_color, Callback = function(c) state.chams.arm_color = c end })
+    G:AddSlider('ChamsArmTransparency', { Text = 'Arm Transparency', Default = 0.7, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.chams.arm_transparency = v end })
+end)
+
+try('visuals misc', function()
+    local G = VisualsTab:AddRightGroupbox('Misc')
+    G:AddToggle('SkinChangerEnable', { Text = 'Skin Changer', Default = false, Callback = function(v) state.skin.enable = v if v then applySkin(state.skin.user_id) else restoreSkin() end end })
+    G:AddInput('SkinChangerUserID', { Text = 'User ID', Default = '1', Placeholder = '1234567', Callback = function(v) state.skin.user_id = v end })
+    G:AddButton('Apply Skin', function() applySkin(state.skin.user_id) end)
+    G:AddButton('Restore Original', function() restoreSkin() end)
+    G:AddDivider()
+    G:AddToggle('HitNotifEnable', { Text = 'Hit Notifications', Default = false, Callback = function(v) state.hitnotif.enable = v end }):AddColorPicker('HitNotifColor', { Title = 'Text Color', Default = state.hitnotif.color, Callback = function(c) state.hitnotif.color = c end })
+    G:AddInput('HitNotifFormat', { Text = 'Format', Default = '{NAME} | -{DMG} | {HP}', Callback = function(v) state.hitnotif.format = v end })
+    G:AddDropdown('HitNotifPos', { Text = 'Position', Values = {'top-right', 'top-left', 'top-center', 'bottom-center', 'center'}, Default = 'top-right', Callback = function(v) state.hitnotif.position = v end })
+    G:AddSlider('HitNotifDuration', { Text = 'Duration', Default = 2.5, Min = 0.5, Max = 6, Rounding = 1, Suffix = 's', Callback = function(v) state.hitnotif.duration = v end })
+    G:AddSlider('HitNotifTextSize', { Text = 'Text Size', Default = 16, Min = 10, Max = 32, Rounding = 0, Callback = function(v) state.hitnotif.text_size = v end })
+    G:AddDivider()
+    G:AddToggle('HitSoundEnable', { Text = 'Hit Sounds', Default = false, Callback = function(v) state.hitsound.enable = v end })
+    G:AddDropdown('HitSoundPick', { Text = 'Sound', Values = { 'neverlose', 'oof', 'rust', 'csgo', 'minecraft', 'bonk', 'bubble', 'gamesense' }, Default = 'neverlose', Callback = function(v) state.hitsound.chosen = v end })
+    G:AddSlider('HitSoundVolume', { Text = 'Volume', Default = 0.6, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.hitsound.volume = v end })
+    G:AddDivider()
+    G:AddToggle('StretchedEnable', { Text = 'Stretched Res', Default = false, Callback = function(v) state.stretched.enable = v end })
+    G:AddSlider('StretchedAmount', { Text = 'Stretch Amount', Default = 1.5, Min = 1, Max = 3, Rounding = 2, Callback = function(v) state.stretched.ratio = v end })
+    G:AddDivider()
+    G:AddToggle('FovEnable', { Text = 'FOV Changer', Default = false, Callback = function(v) state.fov.enable = v end })
+    G:AddSlider('FovValue', { Text = 'FOV (max 120)', Default = 80, Min = 10, Max = 120, Rounding = 0, Callback = function(v) state.fov.value = v end })
+end)
+
+-- ============================================================
+-- MISC TAB — ESP
+-- ============================================================
+print('[seahook] 23 misc / esp ui')
+try('esp ui', function()
+    local ESPBox = MiscTab:AddLeftGroupbox('ESP')
+    ESPBox:AddToggle('esp_enable', { Text = 'Enable ESP', Default = false })
+    ESPBox:AddToggle('esp_show_team', { Text = 'Show Team', Default = false })
+    ESPBox:AddToggle('esp_name', { Text = 'Name', Default = false }):AddColorPicker('esp_name_color', { Title = 'Name Color', Default = Color3.new(1, 1, 1) })
+    ESPBox:AddToggle('esp_distance', { Text = 'Distance', Default = false }):AddColorPicker('esp_distance_color', { Title = 'Distance Color', Default = Color3.new(1, 1, 1) })
+    ESPBox:AddToggle('esp_weapon', { Text = 'Weapon', Default = false })
+    ESPBox:AddToggle('esp_box', { Text = 'Box', Default = false }):AddColorPicker('esp_box_color', { Title = 'Box Color', Default = Color3.new(1, 1, 1) })
+    ESPBox:AddToggle('esp_fill', { Text = 'Fill Box', Default = false }):AddColorPicker('esp_fill_color', { Title = 'Fill Color', Default = Color3.new(1, 1, 1) }):AddColorPicker('esp_fill_color2', { Title = 'Fill Color 2', Default = Color3.fromRGB(0, 0, 0) })
+    ESPBox:AddDropdown('esp_fill_image', { Text = 'Fill Image', Values = { 'default', 'circle', 'diamond', 'heart' }, Default = 'default' })
+    ESPBox:AddToggle('esp_skeleton', { Text = 'Skeleton', Default = false }):AddColorPicker('esp_skeleton_color', { Title = 'Skeleton Color', Default = Color3.new(1, 1, 1) })
+    ESPBox:AddToggle('esp_skeleton_outline', { Text = 'Skeleton Outline', Default = true })
+    ESPBox:AddToggle('esp_healthbar', { Text = 'Healthbar', Default = false }):AddColorPicker('esp_healthbar_color', { Title = 'Healthbar Color', Default = Color3.fromRGB(0, 255, 0) })
+    ESPBox:AddToggle('esp_healthbar_resize', { Text = 'Healthbar Resize', Default = true })
+    ESPBox:AddSlider('esp_healthbar_health_lerp', { Text = 'Healthbar Lerp', Default = 0.2, Min = 0, Max = 1, Rounding = 2 })
+    ESPBox:AddDropdown('esp_bounds_type', { Text = 'Bounds Type', Values = { 'dynamic', 'simple' }, Default = 'dynamic' })
+    ESPBox:AddSlider('esp_bounds_width_scale', { Text = 'Bounds Width Scale', Default = 100, Min = 10, Max = 300, Rounding = 0, Suffix = '%' })
+
+    local FlagsBox = MiscTab:AddLeftGroupbox('ESP Flags')
+    FlagsBox:AddToggle('esp_flag_health_text', { Text = 'Health Text', Default = false }):AddColorPicker('esp_flag_health_color', { Title = 'Health Text Color', Default = Color3.fromRGB(255, 255, 255) })
+    FlagsBox:AddToggle('esp_flag_staring_text', { Text = 'Staring Text', Default = false }):AddColorPicker('esp_flag_staring_color', { Title = 'Staring Text Color', Default = Color3.fromRGB(255, 200, 100) })
+    FlagsBox:AddDropdown('esp_flag_prefix', { Text = 'Flag Prefix', Values = { 'bridge only', 'minimal', 'full' }, Default = 'minimal' })
+
+    local WorldBox = MiscTab:AddRightGroupbox('ESP World')
+    WorldBox:AddToggle('esp_world_name', { Text = 'World Name', Default = false }):AddColorPicker('esp_world_name_color', { Title = 'World Name Color', Default = Color3.new(1, 1, 1) })
+    WorldBox:AddToggle('esp_world_distance', { Text = 'World Distance', Default = false }):AddColorPicker('esp_world_distance_color', { Title = 'World Distance Color', Default = Color3.new(1, 1, 1) })
+    WorldBox:AddToggle('esp_world_image', { Text = 'World Image', Default = false }):AddColorPicker('esp_world_image_color', { Title = 'World Image Color', Default = Color3.new(1, 1, 1) })
+    WorldBox:AddDropdown('esp_world_whitelist', { Text = 'World Whitelist', Values = { 'all', 'players', 'objects' }, Default = 'all', Multi = true })
+
+    local EffectsBox = MiscTab:AddRightGroupbox('ESP Effects')
+    EffectsBox:AddToggle('esp_effects_aura', { Text = 'Aura', Default = false }):AddColorPicker('esp_effects_aura_color1', { Title = 'Aura Color 1', Default = Color3.fromRGB(120, 81, 166) }):AddColorPicker('esp_effects_aura_color2', { Title = 'Aura Color 2', Default = Color3.fromRGB(255, 255, 255) })
+    EffectsBox:AddToggle('esp_effects_particle', { Text = 'Particle Trail', Default = false }):AddColorPicker('esp_effects_particle_color1', { Title = 'Particle Color 1', Default = Color3.fromRGB(120, 81, 166) }):AddColorPicker('esp_effects_particle_color2', { Title = 'Particle Color 2', Default = Color3.fromRGB(255, 255, 255) })
+end)
+
+try('world lightning ui', function()
+    local G = WorldTab:AddLeftGroupbox('Lighting / Colors')
+    G:AddToggle('WorldFog', { Text = 'Fog', Default = false, Callback = function(v) state.world.fog = v if not v then lighting.FogColor = world_originals.fog_color lighting.FogStart = world_originals.fog_start lighting.FogEnd = world_originals.fog_end end end }):AddColorPicker('WorldFogColorBtn', { Title = 'Fog Color', Default = state.world.fog_color, Callback = function(v) state.world.fog_color = v end })
+    G:AddSlider('WorldFogStart', { Text = 'Fog Start', Default = 150, Min = 0, Max = 10000, Rounding = 0, Callback = function(v) state.world.fog_start = v end })
+    G:AddSlider('WorldFogEnd', { Text = 'Fog End', Default = 550, Min = 0, Max = 10000, Rounding = 0, Callback = function(v) state.world.fog_end = v end })
+    G:AddToggle('WorldAmbient', { Text = 'Ambient', Default = false, Callback = function(v) state.world.ambient = v if not v then lighting.Ambient = world_originals.ambient end end }):AddColorPicker('WorldAmbientColorBtn', { Title = 'Ambient Color', Default = state.world.ambient_color, Callback = function(v) state.world.ambient_color = v end })
+    G:AddToggle('WorldClock', { Text = 'Clock Time', Default = false, Callback = function(v) state.world.clock = v if not v then lighting.ClockTime = world_originals.clock_time end end })
+    G:AddSlider('WorldClockTime', { Text = 'Time', Default = 14, Min = 0, Max = 24, Rounding = 1, Callback = function(v) state.world.clock_time = v end })
+    G:AddToggle('WorldBrightness', { Text = 'Brightness', Default = false, Callback = function(v) state.world.brightness = v if not v then lighting.Brightness = world_originals.brightness end end })
+    G:AddSlider('WorldBrightnessLevel', { Text = 'Brightness Level', Default = 1, Min = 0, Max = 10, Rounding = 1, Callback = function(v) state.world.brightness_level = v end })
+    G:AddToggle('WorldExposure', { Text = 'Exposure', Default = false, Callback = function(v) state.world.exposure = v if not v then lighting.ExposureCompensation = world_originals.exposure end end })
+    G:AddSlider('WorldExposureLevel', { Text = 'Exposure Level', Default = 0, Min = -10, Max = 10, Rounding = 1, Callback = function(v) state.world.exposure_level = v end })
+end)
+
+try('world skybox ui', function()
+    local G = WorldTab:AddLeftGroupbox('Skybox')
+    G:AddToggle('WorldSkybox', { Text = 'Skybox', Default = false, Callback = function(v) state.world.skybox = v update_skybox() end })
+    G:AddDropdown('WorldSkySelect', { Text = 'Sky', Values = sky_elements, Default = 'Deep Space', Callback = function(v) state.world.skybox_selected = v update_skybox() end })
+    G:AddToggle('WorldSkyRemoveSun', { Text = 'Remove Sun', Default = false, Callback = function(v) state.world.skybox_remove_sun = v update_skybox() end })
+    G:AddToggle('WorldSkyRemoveMoon', { Text = 'Remove Moon', Default = false, Callback = function(v) state.world.skybox_remove_moon = v update_skybox() end })
+    G:AddToggle('WorldSkyRemoveStars', { Text = 'Remove Stars', Default = false, Callback = function(v) state.world.skybox_remove_stars = v update_skybox() end })
+end)
+
+try('world atmosphere ui', function()
+    local G = WorldTab:AddRightGroupbox('Atmosphere')
+    G:AddToggle('WorldAtmo', { Text = 'Atmosphere', Default = false, Callback = function(v) state.world.atmosphere = v update_atmosphere() end }):AddColorPicker('WorldAtmoColorBtn', { Title = 'Color', Default = state.world.atmosphere_color, Callback = function(v) state.world.atmosphere_color = v update_atmosphere() end }):AddColorPicker('WorldAtmoDecayBtn', { Title = 'Decay', Default = state.world.atmosphere_decay, Callback = function(v) state.world.atmosphere_decay = v update_atmosphere() end })
+    G:AddSlider('WorldAtmoGlare', { Text = 'Glare', Default = 1.5, Min = 0, Max = 10, Rounding = 2, Callback = function(v) state.world.atmosphere_glare = v update_atmosphere() end })
+    G:AddSlider('WorldAtmoHaze', { Text = 'Haze', Default = 10, Min = 0, Max = 10, Rounding = 2, Callback = function(v) state.world.atmosphere_haze = v update_atmosphere() end })
+    G:AddSlider('WorldAtmoDensity', { Text = 'Density', Default = 0.5, Min = 0, Max = 1, Rounding = 2, Callback = function(v) state.world.atmosphere_density = v update_atmosphere() end })
+end)
+
+try('world shaders ui', function()
+    local G = WorldTab:AddLeftGroupbox('Shaders')
+    G:AddToggle('WorldBlur', { Text = 'Blur', Default = false, Callback = function(v) shader_blur.Enabled = v end })
+    G:AddSlider('WorldBlurSize', { Text = 'Blur Size', Default = 12, Min = 0, Max = 56, Rounding = 0, Callback = function(v) shader_blur.Size = v end })
+    G:AddToggle('WorldBloom', { Text = 'Bloom', Default = false, Callback = function(v) shader_bloom.Enabled = v end })
+    G:AddSlider('WorldBloomIntensity', { Text = 'Bloom Intensity', Default = 1, Min = 0, Max = 5, Rounding = 2, Callback = function(v) shader_bloom.Intensity = v end })
+    G:AddToggle('WorldDof', { Text = 'Depth of Field', Default = false, Callback = function(v) shader_dof.Enabled = v end })
+    G:AddSlider('WorldDofFocus', { Text = 'DOF Focus', Default = 25, Min = 0, Max = 500, Rounding = 0, Callback = function(v) shader_dof.FocusDistance = v end })
+    G:AddToggle('WorldSunRays', { Text = 'Sun Rays', Default = false, Callback = function(v) shader_sunrays.Enabled = v end })
+    G:AddSlider('WorldSunRaysIntensity', { Text = 'Rays Intensity', Default = 0.25, Min = 0, Max = 1, Rounding = 2, Callback = function(v) shader_sunrays.Intensity = v end })
+    G:AddToggle('WorldColorGrading', { Text = 'Color Grading', Default = false, Callback = function(v) shader_cc.Enabled = v end })
+    G:AddColorPicker('WorldTintColorBtn', { Title = 'Tint Color', Default = state.world.tint_color, Callback = function(v) shader_cc.TintColor = v state.world.tint_color = v end })
+    G:AddSlider('WorldSaturationLevel', { Text = 'Saturation', Default = 0, Min = -1, Max = 5, Rounding = 2, Callback = function(v) shader_cc.Saturation = v end })
+    G:AddSlider('WorldContrastLevel', { Text = 'Contrast', Default = 0, Min = -1, Max = 1, Rounding = 2, Callback = function(v) shader_cc.Contrast = v end })
+end)
+
+try('settings combat', function()
+    local G = SettingsTab:AddLeftGroupbox('Combat Settings')
+    G:AddToggle('TeamCheckToggle', { Text = 'Team Check', Default = true, Callback = function(v) state.teamCheck = v end })
+end)
+
+try('settings menu', function()
+    local G = SettingsTab:AddLeftGroupbox('Menu')
+    G:AddLabel('Menu Keybind'):AddKeyPicker('MenuKeybind', {
+        Default = 'RightShift', Text = 'Menu Keybind', Mode = 'Toggle', NoUI = true,
+    })
+    if Library.Options and Library.Options.MenuKeybind then
+        Library.ToggleKeybind = Library.Options.MenuKeybind
+    end
+    G:AddButton('Unload', function()
+        SHUTDOWN = true
+        pcall(function() sfov.gui:Destroy() end)
+        pcall(function() afov.gui:Destroy() end)
+        pcall(function()
+            shader_blur:Destroy() shader_bloom:Destroy() shader_dof:Destroy()
+            shader_sunrays:Destroy() shader_cc:Destroy()
+        end)
+        pcall(function() if state.skin.enable then restoreSkin() end end)
+        pcall(function() runS:UnbindFromRenderStep('sh_stretched') end)
+        pcall(function() if getgenv().sh_esp then getgenv().sh_esp:destroy() end end)
+        pcall(function() Library:Unload() end)
+    end)
+end)
+
+print('[seahook] 26 ui done')
+setProgress(1)
+task.wait(0.2)
+if LoadingGui and LoadingGui.Parent then LoadingGui:Destroy() end
+
+pcall(function()
+    Library:Notify({ Title = 'seahook', Description = 'go mog them 😈', Time = 4 })
+end)
+
+print('[seahook] ===== DONE =====')
